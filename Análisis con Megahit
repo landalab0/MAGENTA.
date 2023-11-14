@@ -1,0 +1,5 @@
+#Ejecutamos trim_galore para filtrar
+trim_galore --fastqc -j 45 --paired 01.test_data/*_1.fastq.gz 01.test_data/*_2.fastq.gz -o 02.trimgalore
+
+# Se realiza el ensamble una vez que se filtraron los datos
+megahit -t 34 --k-list 21,33,55,77,99,127 --min-contig-len 1000 -1 data/clean/fermentation_1.fastq -2 data/clean/fermentation_2.fastq -o results/03.megahit 

@@ -1,0 +1,64 @@
+install.packages("devtools")
+library("devtools")
+devtools::install_github("benjjneb/dada2", ref="v1.16")
+
+library(dada2); packageVersion("dada2")
+library(tidyverse)
+
+files_ssr<-list.files("01.Trimgalore/")
+
+for(i in 1:length(files_ssr)){                      
+  pathF <- paste0("01.Trimgalore/", files_ssr[[i]][1]) # Cambiar hacia la dirección donde se encuentran los datos procesados con Trimgalore
+  pathR <- paste0("01.Trimgalore/", files_ssr[[i]][1]) # Cambiar hacia la dirección donde se encuentran los datos procesados con Trimgalore
+  filtpathF <- file.path(pathF, "filtered") # Crea un Subdirectorio "filtered" para cada muestra listada
+  filtpathR <- file.path(pathR, "filtered") # ...
+  fastqFs <- sort(list.files(pathF, pattern="1.fq.gz")) #Leé todos los archivos y los separa en forward y reverse dependiendo del patron en el nombre
+  fastqRs <- sort(list.files(pathR, pattern="2.fq.gz"))
+  if(length(fastqFs) != length(fastqRs)) stop("Forward and reverse files do not match.") # Condicional que va a detener el proceso si los archivos forward y reverse con concuerdan para alguna muestra
+  # Se realiza el filtrado con parametros standar y no son los óptims para cada estudio
+  filterAndTrim(fwd=file.path(pathF, fastqFs), filt=file.path(filtpathF, fastqFs),
+                rev=file.path(pathR, fastqRs), filt.rev=file.path(filtpathR, fastqRs),
+                truncLen=c(240,200), maxEE=2, truncQ=11, maxN=0, rm.phix=TRUE,
+                compress=TRUE, verbose=TRUE, multithread=TRUE)
+  
+} 
+
+
+
+for(i in 1:length(files_ssr)){   
+  filtpathF <- paste0("01.Trimgalore/", files_ssr, "/filtered") # CAMBIAR por el directorio donde se encuentran tus datos procesados con Trimgalore
+  filtpathR <- paste0("01.Trimgalore/", files_ssr, "/filtered") # CAMBIAR por el directorio donde se encuentran tus datos procesados con Trimgalore
+  filtFs <- list.files(filtpathF, pattern="1.fq.gz", full.names = TRUE)
+  filtRs <- list.files(filtpathR, pattern="2.fq.gz", full.names = TRUE)
+  sample.names <- sapply(strsplit(basename(filtFs), "_"), `[`, 1) # Se hace la separación entre las lecturas forward y reverse
+  sample.namesR <- sapply(strsplit(basename(filtRs), "_"), `[`, 1) 
+  if(!identical(sample.names, sample.namesR)) stop("Forward and reverse files do not match.") #Condicional que detiene el proceso si los dos archivos son identicos
+  names(filtFs) <- sample.names
+  names(filtRs) <- sample.names
+  set.seed(100)
+  # Aprende las tasas de error 
+  errF <- learnErrors(filtFs, nbases=1e8, multithread=TRUE)
+  # Learn reverse error rates
+  errR <- learnErrors(filtRs, nbases=1e8, multithread=TRUE)
+  # Se infieren las muestras y se juntan las secuencias pareadas finales
+  mergers <- vector("list", length(sample.names))
+  return(mergers)
+}
+  names(mergers) <- sample.names
+  for(sam in sample.names) {
+    cat("Processing:", sam, "\n")
+    derepF <- derepFastq(filtFs[[sam]])
+    ddF <- dada(derepF, err=errF, multithread=TRUE)
+    derepR <- derepFastq(filtRs[[sam]])
+    ddR <- dada(derepR, err=errR, multithread=TRUE)
+    merger <- mergePairs(ddF, derepF, ddR, derepR)
+    mergers[[sam]] <- merger
+  }
+  rm(derepF); rm(derepR)
+  # Una vez realizado el Merge, se guardan las tablas de ASV y se remueven quimeras al final
+  seqtab <- makeSequenceTable(mergers)
+  saveRDS(seqtab, paste0("03.DADA/", files_ssr[[i]][1], "/seqtab.rds")) # CHANGE ME to where you want sequence table saved
+
+
+# Remove chimeras
+seqtabs <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE)
